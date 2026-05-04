@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Admin Dashboard | Wedding Manager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0f0c0b; font-family: 'Inter', sans-serif; color: #f0ebe1; padding: 2rem 1rem; }
+        .glass-card {
+            background: rgba(25,20,22,0.75); backdrop-filter: blur(12px);
+            border-radius: 2rem; border: 1px solid rgba(228,179,99,0.5);
+            padding: 1.8rem; margin-bottom: 2rem; transition: 0.2s;
+        }
+        h2 { font-family: 'Playfair Display', serif; color: #e4b363; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.8rem; }
+        input, textarea, select {
+            background: #1e191c; border: 1px solid #e4b363; padding: 0.8rem;
+            border-radius: 2rem; color: white; width: 100%; margin-bottom: 1rem;
+        }
+        button {
+            background: #e4b363; border: none; padding: 0.7rem 1.5rem; border-radius: 3rem;
+            font-weight: bold; color: #0f0c0b; cursor: pointer; margin-top: 0.5rem;
+        }
+        button.secondary { background: transparent; border: 1px solid #e4b363; color: #e4b363; }
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px,1fr)); gap: 1.5rem; }
+        .image-preview { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 1rem; }
+        .preview-img { width: 80px; height: 80px; object-fit: cover; border-radius: 1rem; border: 1px solid gold; }
+        .timeline-item-admin {
+            background: rgba(0,0,0,0.4); border-radius: 1.5rem; padding: 1rem;
+            margin-bottom: 1rem; display: flex; justify-content: space-between;
+            align-items: center; flex-wrap: wrap; gap: 0.5rem;
+        }
+        .login-overlay {
+            position: fixed; top:0; left:0; width:100%; height:100%;
+            background: rgba(0,0,0,0.9); backdrop-filter: blur(20px);
+            display: flex; align-items: center; justify-content: center; z-index: 1000;
+        }
+        .hidden { display: none; }
+        i { margin-right: 6px; }
+        @media (max-width: 600px) { body { padding: 1rem; } .glass-card { padding: 1.2rem; } }
+    </style>
+</head>
+<body>
+<div id="loginOverlay" class="login-overlay">
+    <div class="glass-card" style="width:300px; text-align:center;">
+        <h2>Admin Login</h2>
+        <input type="password" id="adminPassword" placeholder="Enter password">
+        <button id="loginBtn">Unlock Dashboard</button>
+        <p style="margin-top:1rem; font-size:0.8rem;">Default: admin123</p>
+    </div>
+</div>
+
+<div id="adminContent" class="hidden">
+    <div class="glass-card">
+        <h2><i class="fas fa-crown"></i> Wedding Details</h2>
+        <div class="grid-2">
+            <div><label>Groom Name</label><input type="text" id="editGroom" placeholder="Groom"></div>
+            <div><label>Bride Name</label><input type="text" id="editBride" placeholder="Bride"></div>
+            <div><label>Date (Display)</label><input type="text" id="editDateDisplay" placeholder="May 27, 2026"></div>
+            <div><label>Time</label><input type="text" id="editTimeDisplay" placeholder="6:00 PM"></div>
+            <div><label>ISO Date (for countdown)</label><input type="datetime-local" id="editDateISO"></div>
+            <div><label>Venue</label><input type="text" id="editVenue"></div>
+            <div><label>Contact Number</label><input type="text" id="editContact"></div>
+        </div>
+        <button id="saveSiteConfigBtn"><i class="fas fa-save"></i> Save & Publish</button>
+        <div id="saveMsg" style="margin-top:10px; color:#e4b363;"></div>
+    </div>
+
+    <div class="glass-card">
+        <h2><i class="fas fa-images"></i> Gallery Manager</h2>
+        <input type="file" id="galleryUpload" multiple accept="image/*">
+        <button id="uploadImagesBtn">Upload to Gallery</button>
+        <div id="galleryPreviewList" class="image-preview"></div>
+    </div>
+
+    <div class="glass-card">
+        <h2><i class="fas fa-history"></i> Timeline (Our Story)</h2>
+        <div>
+            <input type="text" id="newTimelineTitle" placeholder="Title (e.g. First Date)">
+            <textarea id="newTimelineDesc" rows="2" placeholder="Description"></textarea>
+            <button id="addTimelineBtn">➕ Add Event</button>
+        </div>
+        <div id="timelineListAdmin"></div>
+    </div>
+
+    <div class="glass-card">
+        <h2><i class="fas fa-globe"></i> Live Preview</h2>
+        <p>Changes reflect immediately on public site.</p>
+        <button id="previewBtn" class="secondary"><i class="fas fa-external-link-alt"></i> Open Public Site</button>
+    </div>
+</div>
+
+<script>
+    // ---------- FIREBASE CONFIG (SAME AS index.html) ----------
+    const firebaseConfig = {
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_AUTH_DOMAIN",
+        projectId: "YOUR_PROJECT_ID",
+        storageBucket: "YOUR_STORAGE_BUCKET",
+        messagingSenderId: "YOUR_SENDER_ID",
+        appId: "YOUR_APP_ID"
+    };
+    let firebaseEnabled = false, db, storage;
+    try {
+        if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+            storage = firebase.storage();
+            firebaseEnabled = true;
+        } else throw new Error("Placeholder");
+    } catch(e) { console.warn("localStorage fallback mode"); }
+
+    let currentTimeline = [];
+
+    function loadAdminData() {
+        if (firebaseEnabled) {
+            db.collection("siteConfig").doc("weddingSettings").onSnapshot(doc => {
+                if (doc.exists) {
+                    let d = doc.data();
+                    document.getElementById("editGroom").value = d.coupleGroom || "";
+                    document.getElementById("editBride").value = d.coupleBride || "";
+                    document.getElementById("editDateDisplay").value = d.eventDateDisplay || "";
+                    document.getElementById("editTimeDisplay").value = d.eventTimeDisplay || "";
+                    document.getElementById("editVenue").value = d.venue || "";
+                    document.getElementById("editContact").value = d.contactNumber || "";
+                    if (d.eventDateISO) document.getElementById("editDateISO").value = d.eventDateISO.slice(0,16);
+                }
+            });
+            db.collection("gallery").onSnapshot(snap => {
+                const container = document.getElementById("galleryPreviewList");
+                if (!container) return;
+                container.innerHTML = "";
+                snap.forEach(doc => {
+                    let url = doc.data().url;
+                    let div = document.createElement("div");
+                    div.innerHTML = `<img src="${url}" class="preview-img"><br><button class="secondary small" data-id="${doc.id}" style="padding:4px 12px; font-size:0.7rem;">Delete</button>`;
+                    container.appendChild(div);
+                });
+                document.querySelectorAll("[data-id]").forEach(btn => btn.addEventListener("click", async (e) => {
+                    let id = btn.getAttribute("data-id");
+                    if (firebaseEnabled) {
+                        await db.collection("gallery").doc(id).delete();
+                        if (storage) { let ref = storage.refFromURL(btn.parentElement.querySelector("img").src); ref.delete().catch(()=>{}); }
+                    } else {
+                        let gallery = JSON.parse(localStorage.getItem("weddingGallery")) || [];
+                        gallery = gallery.filter(g => g.id !== id);
+                        localStorage.setItem("weddingGallery", JSON.stringify(gallery));
+                        loadAdminData();
+                    }
+                }));
+            });
+            db.collection("timeline").orderBy("order", "asc").onSnapshot(snap => {
+                currentTimeline = snap.docs.map(d => ({ id: d.id, title: d.data().title, description: d.data().description, order: d.data().order }));
+                renderTimelineAdmin();
+            });
+        } else {
+            // localStorage fallback
+            let config = JSON.parse(localStorage.getItem("weddingSiteData")) || {};
+            document.getElementById("editGroom").value = config.coupleGroom || "Janitha";
+            document.getElementById("editBride").value = config.coupleBride || "Dilmi";
+            document.getElementById("editDateDisplay").value = config.eventDateDisplay || "May 27, 2026";
+            document.getElementById("editTimeDisplay").value = config.eventTimeDisplay || "6:00 PM";
+            document.getElementById("editVenue").value = config.venue || "Home";
+            document.getElementById("editContact").value = config.contactNumber || "0767269244";
+            document.getElementById("editDateISO").value = (config.eventDateISO || "2026-05-27T18:00").slice(0,16);
+            let gallery = JSON.parse(localStorage.getItem("weddingGallery")) || [];
+            const container = document.getElementById("galleryPreviewList");
+            container.innerHTML = "";
+            gallery.forEach(g => {
+                let div = document.createElement("div");
+                div.innerHTML = `<img src="${g.url}" class="preview-img"><br><button class="secondary small" data-id="${g.id}" style="padding:4px 12px;">Delete</button>`;
+                container.appendChild(div);
+            });
+            document.querySelectorAll("[data-id]").forEach(btn => btn.addEventListener("click", () => {
+                let id = btn.getAttribute("data-id");
+                let upd = gallery.filter(g => g.id !== id);
+                localStorage.setItem("weddingGallery", JSON.stringify(upd));
+                loadAdminData();
+            }));
+            currentTimeline = JSON.parse(localStorage.getItem("weddingTimeline")) || [];
+            renderTimelineAdmin();
+        }
+    }
+
+    function renderTimelineAdmin() {
+        const container = document.getElementById("timelineListAdmin");
+        if (!container) return;
+        container.innerHTML = currentTimeline.map((item, idx) => `
+            <div class="timeline-item-admin">
+                <div><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.description)}</small></div>
+                <div><button class="secondary small" data-id="${item.id}" data-action="deleteTimeline">Delete</button></div>
+            </div>
+        `).join('');
+        document.querySelectorAll("[data-action='deleteTimeline']").forEach(btn => btn.addEventListener("click", async () => {
+            let id = btn.getAttribute("data-id");
+            if (firebaseEnabled) {
+                await db.collection("timeline").doc(id).delete();
+            } else {
+                let newList = currentTimeline.filter(t => t.id !== id);
+                localStorage.setItem("weddingTimeline", JSON.stringify(newList));
+                loadAdminData();
+            }
+        }));
+    }
+
+    function escapeHtml(str) { return str.replace(/[&<>]/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[m])); }
+
+    // Save site config
+    document.getElementById("saveSiteConfigBtn").addEventListener("click", async () => {
+        let data = {
+            coupleGroom: document.getElementById("editGroom").value,
+            coupleBride: document.getElementById("editBride").value,
+            eventDateDisplay: document.getElementById("editDateDisplay").value,
+            eventTimeDisplay: document.getElementById("editTimeDisplay").value,
+            venue: document.getElementById("editVenue").value,
+            contactNumber: document.getElementById("editContact").value,
+            eventDateISO: document.getElementById("editDateISO").value
+        };
+        if (data.eventDateISO) data.eventDateISO = new Date(data.eventDateISO).toISOString();
+        if (firebaseEnabled) {
+            await db.collection("siteConfig").doc("weddingSettings").set(data, { merge: true });
+            document.getElementById("saveMsg").innerText = "✅ Saved to Firebase!";
+        } else {
+            localStorage.setItem("weddingSiteData", JSON.stringify(data));
+            document.getElementById("saveMsg").innerText = "✅ Saved to localStorage! Public site will update.";
+        }
+        setTimeout(() => document.getElementById("saveMsg").innerText = "", 2000);
+    });
+
+    // Upload images
+    document.getElementById("uploadImagesBtn").addEventListener("click", async () => {
+        let files = document.getElementById("galleryUpload").files;
+        if (!files.length) return;
+        if (firebaseEnabled) {
+            for (let file of files) {
+                let ref = storage.ref(`gallery/${Date.now()}_${file.name}`);
+                await ref.put(file);
+                let url = await ref.getDownloadURL();
+                await db.collection("gallery").add({ url, timestamp: new Date() });
+            }
+        } else {
+            let gallery = JSON.parse(localStorage.getItem("weddingGallery")) || [];
+            for (let file of files) {
+                let reader = new FileReader();
+                reader.onload = ev => {
+                    let id = Date.now() + Math.random();
+                    gallery.push({ id: id.toString(), url: ev.target.result });
+                    localStorage.setItem("weddingGallery", JSON.stringify(gallery));
+                    loadAdminData();
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        alert("Upload complete!");
+        loadAdminData();
+    });
+
+    // Add timeline item
+    document.getElementById("addTimelineBtn").addEventListener("click", async () => {
+        let title = document.getElementById("newTimelineTitle").value.trim();
+        let desc = document.getElementById("newTimelineDesc").value.trim();
+        if (!title || !desc) return;
+        let newOrder = currentTimeline.length;
+        if (firebaseEnabled) {
+            await db.collection("timeline").add({ title, description: desc, order: newOrder });
+        } else {
+            let timeline = JSON.parse(localStorage.getItem("weddingTimeline")) || [];
+            timeline.push({ id: Date.now().toString(), title, description: desc });
+            localStorage.setItem("weddingTimeline", JSON.stringify(timeline));
+        }
+        document.getElementById("newTimelineTitle").value = "";
+        document.getElementById("newTimelineDesc").value = "";
+        loadAdminData();
+    });
+
+    document.getElementById("previewBtn").addEventListener("click", () => {
+        window.open(window.location.origin + "/index.html", "_blank");
+    });
+
+    // Simple login
+    const loginDiv = document.getElementById("loginOverlay");
+    const adminDiv = document.getElementById("adminContent");
+    document.getElementById("loginBtn").addEventListener("click", () => {
+        const pwd = document.getElementById("adminPassword").value;
+        if (pwd === "admin123") {
+            loginDiv.classList.add("hidden");
+            adminDiv.classList.remove("hidden");
+            loadAdminData();
+        } else { alert("Wrong password"); }
+    });
+</script>
+</body>
+</html>
